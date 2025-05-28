@@ -1,87 +1,12 @@
-from datetime import datetime, date
+from datetime import datetime
 import requests
 from bs4 import BeautifulSoup
 import re
+from const import MVC_LOCATION_CODES_BY_SERVICE, SERVICES
+from mail import sendAppointments
+import os
 
-MVC_LOCATION_CODES_BY_SERVICE = {
-  "RENEWAL": {
-    "BAKERS BASKIN": 101,
-    "BAYONNE": 102,
-    "CAMDEN": 104,
-    "CARDIFF": 105,
-    "DELANCO": 107,
-    "EATONTOWN": 108,
-    "EDISON": 110,
-    "ELIZABETH": 261,
-    "FLEMINGTON": 111,
-    "FREEHOLD": 113,
-    "LODI": 114,
-    "MANAHAWKIN": 787,
-    "NEWARK": 116,
-    "NEWTON": 485,
-    "NORTH BERGEN": 117,
-    "OAKLAND": 119,
-    "PATERSON": 120,
-    "RAHWAY": 122,
-    "RANDOLPH": 123,
-    "RIO GRANDE": 103,
-    "RUNNEMEDE": 500,
-    "SALEM": 106,
-    "WAYNE": 118,
-    "SOUTH PLAINFIELD": 109,
-    "TOMS RIVER": 112,
-    "VINELAND": 115,
-    "WASHINGTON": 486,
-    "WEST DEPTFORD": 121
-  },
-  "REAL ID": {
-    "OAKLAND": 141,
-    "PATERSON": 142,
-    "LODI": 136,
-    "WAYNE": 140,
-    "RANDOLPH": 145,
-    "NORTH BERGEN": 139,
-    "NEWARK": 138,
-    "BAYONNE": 125,
-    "RAHWAY": 144,
-    "SOUTH PLAINFIELD": 131,
-    "EDISON": 132,
-    "FLEMINGTON": 133,
-    "BAKERS BASIN": 124,
-    "FREEHOLD": 135,
-    "EATONTOWN": 130,
-    "TOMS RIVER": 134,
-    "DELANCO": 129,
-    "CAMDEN": 127,
-    "WEST DEPTFORD": 143,
-    "SALEM": 128,
-    "VINELAND": 137,
-    "CARDIFF": 146,
-    "RIO GRANDE": 126,
-    "ELIZABETH": 265,
-    "MANAHAWKIN": 511,
-    "NEWTON": 448,
-    "RUNNEMEDE": 502,
-    "WASHINGTON": 451
-  }
-}
-
-SERVICES = {
-    "REAL ID": 12,
-    "RENEWAL": 11
-}
-
-# enter your preferred mvc locations or filter based on zip code / current location within X mile range
-# enter your preferred days of the week and available times on each day
-
-# TODO:
-    # check every 60 seconds and print results
-    # write python script to send email when appointments available
-
-def send_email():
-    print("Implement emailing")
-
-def get_times_and_links(date, service, location):
+def get_times_and_links(date, service, location, s, l):
     result = requests.get(f'https://telegov.njportal.com/njmvc/AppointmentWizard/{service}/{location}?date={date}')
     soup = BeautifulSoup(result.text, 'html.parser')
 
@@ -90,13 +15,13 @@ def get_times_and_links(date, service, location):
     for t in times:
         link = t['href']
         time = t.get_text(strip=True)
-        appointments.append((time, link))
+        appointments.append((s, l, date, time, link))
 
     return appointments
 
 def get_appointments(s, l, current_month, current_year):
     print(f"Finding appointments in {l} for {s}")
-    num_appointments = 0
+
     location = MVC_LOCATION_CODES_BY_SERVICE[s][l]
     service = SERVICES[s]
     
@@ -109,7 +34,6 @@ def get_appointments(s, l, current_month, current_year):
         end_month = int(match.group(2)) # check last month with appointments still available
         end_year = int(match.group(1))
         end_date = int(match.group(3))
-        print(f"Last date with available appointments: {end_year}-{end_month:02}-{end_date:02}")
 
     dates = set()
     # iterate from current month-year to month-year with last available appointment date
@@ -124,9 +48,8 @@ def get_appointments(s, l, current_month, current_year):
         if match:
             dates_list = match.group(1)
             dates.update(re.findall(r'\d{4}-\d{2}-\d{2}', dates_list))
-        else:
-            print(f"No dates with appointments found in {year}-{month:02}")
 
+        # loop around to January of next year after reaching December
         month += 1
         if month > 12:
             month = 1
@@ -134,41 +57,54 @@ def get_appointments(s, l, current_month, current_year):
 
     dates = list(dates) # convert set to list of dates for indexing and ordering
     dates.sort(key=lambda date: datetime.strptime(date, "%Y-%m-%d")) # sort chronologically
-    
-    print(dates)
-    print(f"Found {len(dates)} days with available appointments in {l} for {s}")
 
+    # for each date with appointments, get their timings and URLs
+    appointments = []
     for d in dates:
-        appointments = get_times_and_links(d, service, location)
-        num_appointments += len(appointments)
+        appointments.extend(get_times_and_links(d, service, location, s, l))
 
-        for time, link in appointments:
-            print(f"{d} at {time}: https://telegov.njportal.com{link}")
+    print(f"Found {len(appointments)} appointments in {l} for {s}")
 
-    print(f"Found {num_appointments} appointments in {l} for {s}")
-    if num_appointments > 0:
-        send_email()
+    return appointments
 
 if __name__ == "__main__":
-    # modify these to your personal preferences
-    # locations = ["LODI", "EDISON"]
-    # services = ["REAL ID", "RENEWAL"]
-    
-    # renewal appointments in Freehold (for testing purposes)
-    # services = ["RENEWAL"]
-    # locations = ["FREEHOLD"]
+    now = datetime.now() # used to record program execution time for log
 
-    # appointment that I need :)
+    # appointment that I need (modify these to your personal preferences)
     services = ["REAL ID"]
     locations = ["LODI"]
-
-    today = date.today()
-    print(f"Today's date: {today}")
 
     # get current month and year to start checking appointments from
     current_month = int(datetime.now().strftime('%m'))
     current_year = int(datetime.now().strftime('%Y'))
     
+    # loop through each location for each service and pull all available appointments
+    appointments = []
     for s in services:
         for l in locations:
-            get_appointments(s, l, current_month, current_year)
+            appointments.extend(get_appointments(s, l, current_month, current_year))
+
+    if len(appointments) > 0:
+        print(f"Found {len(appointments)} total appointments for all preferred locations and services")
+
+        formatted_appointments = "\n".join(
+            f"{service} at {location} on {date} at {time}: https://telegov.njportal.com{link}"
+            for (service, location, date, time, link) in appointments
+        )
+
+        # read the previous appointments file if it exists
+        if os.path.exists("prev.txt"):
+            with open("prev.txt", "r") as f:
+                prev_appts = f.read()
+
+        # send the new appointments only if this is the first run or the available appointments have changed
+        if (not os.path.exists("prev.txt") or prev_appts != formatted_appointments):
+            sendAppointments(formatted_appointments)
+
+        with open("prev.txt", "w") as f: # store new appointments for comparison on next execution
+            f.write(formatted_appointments)
+
+    else:
+        print("Found 0 total appointments for all preferred locations and services")
+    
+    print(f"Executed at {now.strftime('%Y-%m-%d %H:%M:%S')}\n")
