@@ -7,6 +7,7 @@ Need an appointment to upgrade your license to a REAL ID but don't want to keep 
 - Scrapes NJMVC appointment availability for specific locations and service types
 - Sends email notifications when new appointments are found
 - Prevents duplicate emails if appointments haven't changed
+- Filter appointments based on availability by specifying date ranges and timings for days of the week
 
 ---
 
