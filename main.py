@@ -67,12 +67,52 @@ def get_appointments(s, l, current_month, current_year):
 
     return appointments
 
+def filter_appointments(appointments, dates, weekly):
+    def parse_dates(range):
+        start, end = range.split("-")
+        return (datetime.strptime(start, "%m/%d/%Y").date(), datetime.strptime(end, "%m/%d/%Y").date())
+
+    def parse_times(range):
+        start, end = range.split("-")
+        return (datetime.strptime(start, "%I:%M%p").time(), datetime.strptime(end, "%I:%M%p").time())
+
+    date_ranges = [parse_dates(r) for r in dates]
+    filtered_appts = []
+
+    for a in appointments:
+        appt_date = datetime.strptime(a[2], "%Y-%m-%d").date()
+        appt_time = datetime.strptime(a[3].split()[0] + a[3].split()[1], "%I:%M%p").time()
+        appt_day = appt_date.strftime("%A")
+
+        valid_date = any(start <= appt_date <= end for start, end in date_ranges)
+
+        range = weekly.get(appt_day)
+        valid_time = False
+        if range:
+            start, end = parse_times(range)
+            valid_time = (start <= appt_time <= end)
+
+        if valid_date and valid_time:
+            filtered_appts.append(a)
+    
+    return filtered_appts
+
 if __name__ == "__main__":
     now = datetime.now() # used to record program execution time for log
 
     # appointment that I need (modify these to your personal preferences)
-    services = ["REAL ID"]
+    services = ["REAL ID", "REAL ID TUESDAY"]
     locations = ["LODI"]
+    
+    # availability filters
+    dates = ["05/29/2025-08/12/2025"] # enter each range as MM/DD/YYYY-MM/DD/YYYY
+    weekly = {"Monday": "08:00AM-04:30PM", # enter each range as HH:MM(AM/PM)-HH:MM(AM/PM)
+              "Tuesday": "",               # leaving empty string indicates no availability on that day
+              "Wednesday": "",
+              "Thursday": "",
+              "Friday": "08:00AM-04:30PM",
+              "Saturday": "08:00AM-03:00PM"
+    }
 
     # get current month and year to start checking appointments from
     current_month = int(datetime.now().strftime('%m'))
@@ -85,25 +125,27 @@ if __name__ == "__main__":
             appointments.extend(get_appointments(s, l, current_month, current_year))
 
     if len(appointments) > 0:
-        print(f"Found {len(appointments)} total appointments for all preferred locations and services")
+        # filter appointments based on availability preferences
+        appointments = filter_appointments(appointments, dates, weekly)
+        print(f"Found {len(appointments)} total appointments for all preferred locations and services after filtering by available dates and times")
 
-        formatted_appointments = "\n".join(
-            f"{service} at {location} on {date} at {time}: https://telegov.njportal.com{link}"
-            for (service, location, date, time, link) in appointments
-        )
+        if len(appointments) > 0:
+            formatted_appointments = "\n".join(
+                f"{service} at {location} on {date} at {time}: https://telegov.njportal.com{link}"
+                for (service, location, date, time, link) in appointments
+            )
 
-        # read the previous appointments file if it exists
-        if os.path.exists("prev.txt"):
-            with open("prev.txt", "r") as f:
-                prev_appts = f.read()
+            # read the previous appointments file if it exists
+            if os.path.exists("prev.txt"):
+                with open("prev.txt", "r") as f:
+                    prev_appts = f.read()
 
-        # send the new appointments only if this is the first run or the available appointments have changed
-        if (not os.path.exists("prev.txt") or prev_appts != formatted_appointments):
-            sendAppointments(formatted_appointments)
+            # send the new appointments only if this is the first run or the available appointments have changed
+            if (not os.path.exists("prev.txt") or prev_appts != formatted_appointments):
+                sendAppointments(formatted_appointments)
 
-        with open("prev.txt", "w") as f: # store new appointments for comparison on next execution
-            f.write(formatted_appointments)
-
+            with open("prev.txt", "w") as f: # store new appointments for comparison on next execution
+                f.write(formatted_appointments)
     else:
         print("Found 0 total appointments for all preferred locations and services")
     
